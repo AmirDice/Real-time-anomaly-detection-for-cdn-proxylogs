@@ -1,0 +1,109 @@
+version: "3"
+
+services:
+  influxdb:
+    image: bitnami/influxdb
+    container_name: influxdb
+    volumes:
+      - influxdb:/var/lib/influxdb
+    # entrypoint: ["./entrypoint.sh"]
+    restart: on-failure:10
+    ports:
+     - 8086:8086
+    environment:
+      - INFLUXDB_DB=${INFLUXDB_DB}
+      - INFLUXDB_USER_BUCKET=${DEFAULT_BUCKET}
+      - INFLUXDB_ADMIN_USER=${ADMIN_USERNAME}
+      - INFLUXDB_ADMIN_USER_PASSWORD=${ADMIN_PASSWORD}
+      - INFLUXDB_ADMIN_USER_TOKEN=${AUTH_TOKEN}
+    # networks:
+    #   - cdn-network
+
+  telegraf:
+    image: telegraf
+    container_name: telegraf
+    volumes:
+      - ./telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
+    environment:
+      - HOST=${INFLUXDB_HOST}
+      - TOKEN=${AUTH_TOKEN}
+      - ORG=${DEFAULT_ORGANIZATION}
+      - BUCKET=${MONITORING_BUCKET}
+    depends_on:
+      - influxdb
+    links:
+      - influxdb
+    ports:
+      - 8125:8125
+    # networks:
+    #   - cdn-network
+
+  grafana:
+    image: grafana/grafana
+    container_name: grafana
+    ports:
+      - 3000:3000
+    volumes:
+      - grafana:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on: 
+      - influxdb
+    # networks:
+    #   - cdn-network
+
+  chronograf:
+    image: chronograf:latest
+    hostname: chronograf
+    container_name: chronograf
+    ports:
+      - 8080:8080
+    links:
+      - influxdb
+    depends_on:
+      - influxdb
+    volumes:
+      - chronograf:/var/lib/chronograf
+    environment:
+      - PORT=8080
+    # networks:
+    #   - cdn-network
+
+# Kafka Service Running with Zookeeper
+  kafka:
+    image: spotify/kafka
+    container_name: kafka
+    hostname: kafka
+    ports:
+      - 9092:9092
+    environment:
+      ADVERTISED_HOST: kafka
+      ADVERTISED_PORT: 9092
+      AUTO_CREATE_TOPICS: "true"
+    command: >
+        bash -c
+        "(sleep 15s &&
+        /opt/kafka_2.11-0.10.1.0/bin/kafka-topics.sh
+        --create
+        --zookeeper
+        localhost:2181 --replication-factor 1 --partitions 1 --topic CDN &) && (supervisord -n)"
+    healthcheck:
+      test: ['CMD-SHELL', '/opt/kafka_2.11-0.10.1.0/bin/kafka-topics.sh --zookeeper localhost:2181 --list']
+      interval: 20s
+      timeout: 5s
+      retries: 3
+
+   # Python Environement running a KafkaProducer program
+  producer:      
+    image: producer
+    container_name: producer
+    build: ./kafka
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+volumes:
+  grafana:
+  influxdb:
+  chronograf:
