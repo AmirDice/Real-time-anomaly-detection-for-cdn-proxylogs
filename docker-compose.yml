@@ -70,6 +70,90 @@ services:
       - PORT=8080
     # networks:
     #   - cdn-network
+  cp-zookeeper:
+    image: confluentinc/cp-zookeeper:6.0.1
+    hostname: zookeeper
+    container_name: zookeeper
+    ports:
+    - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  cp-broker:
+    image: confluentinc/cp-kafka:latest
+    hostname: broker
+    container_name: broker
+    depends_on:
+    - cp-zookeeper
+    ports:
+    - "29092:29092"
+    - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      CONFLUENT_METRICS_REPORTER_BOOTSTRAP_SERVERS: broker:29092
+      CONFLUENT_METRICS_REPORTER_ZOOKEEPER_CONNECT: zookeeper:2181
+      CONFLUENT_METRICS_REPORTER_TOPIC_REPLICAS: 1
+      CONFLUENT_METRICS_ENABLE: 'false'
+
+  cp-schema-registry:
+    image: confluentinc/cp-schema-registry:6.0.1
+    hostname: schema-registry
+    container_name: schema-registry
+    depends_on:
+    - cp-zookeeper
+    - cp-broker
+    ports:
+    - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_CONNECTION_URL: 'zookeeper:2181'
+
+  connect-file-pulse:
+    image: streamthoughts/kafka-connect-file-pulse:2.5.0
+    container_name: connect
+    depends_on:
+    - cp-broker
+    - cp-schema-registry
+    ports:
+    - "8083:8083"
+    - "8000:8000"
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: 'broker:29092'
+      CONNECT_REST_ADVERTISED_HOST_NAME: connect
+      CONNECT_REST_PORT: 8083
+      CONNECT_GROUP_ID: compose-connect-group
+      CONNECT_CONFIG_STORAGE_TOPIC: docker-connect-configs
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_OFFSET_FLUSH_INTERVAL_MS: 10000
+      CONNECT_OFFSET_STORAGE_TOPIC: docker-connect-offsets
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_STATUS_STORAGE_TOPIC: docker-connect-status
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.storage.StringConverter
+      CONNECT_VALUE_CONVERTER: io.confluent.connect.avro.AvroConverter
+      CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      CONNECT_INTERNAL_KEY_CONVERTER: "org.apache.kafka.connect.json.JsonConverter"
+      CONNECT_INTERNAL_VALUE_CONVERTER: "org.apache.kafka.connect.json.JsonConverter"
+      CONNECT_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      # kafka-connect-file-pulse is installed as a confluent-hub component
+      CONNECT_PLUGIN_PATH: "/usr/share/java,/usr/share/confluent-hub-components/"
+      CONNECT_LOG4J_ROOT_LOGLEVEL: "INFO"
+      # CONNECT_LOG4J_LOGGERS: io.streamthoughts=DEBUG,org.apache.zookeeper=ERROR,org.I0Itec.zkclient=ERROR,org.reflections=ERROR
+      # Uncomment for debugging the connector during development cycle
+      # KAFKA_OPTS: "-agentlib:jdwp=transport=dt_socket,server=y,address=8000,suspend=n"
+    volumes:
+      - ./connect-data:/tmp/connect-data   
+volumes:
+  grafana:
+  influxdb:
+  chronograf:
+
 
 # Kafka Service Running with Zookeeper
   # kafka:
@@ -96,44 +180,42 @@ services:
   #     retries: 3
 
    # Python Environement running a KafkaProducer program
-  producer:      
-    image: producer
-    container_name: producer
-    build: ./kafka
-    depends_on:
-      kafka:
-        condition: service_healthy
+  # producer:      
+  #   image: producer
+  #   container_name: producer
+  #   build: ./kafka
+  #   depends_on:
+  #     kafka:
+  #       condition: service_healthy
   
-  zookeeper:
-    container_name: zookeeper
-    image: quay.io/strimzi/kafka:0.28.0-kafka-3.1.0
-    command: [
-        "sh", "-c",
-        "bin/zookeeper-server-start.sh config/zookeeper.properties"
-      ]
-    ports:
-    - "2181:2181"
-    environment:
-      LOG_DIR: /tmp/logs
+  # zookeeper:
+  #   container_name: zookeeper
+  #   image: quay.io/strimzi/kafka:0.28.0-kafka-3.1.0
+  #   command: [
+  #       "sh", "-c",
+  #       "bin/zookeeper-server-start.sh config/zookeeper.properties"
+  #     ]
+  #   ports:
+  #   - "2181:2181"
+  #   environment:
+  #     LOG_DIR: /tmp/logs
 
-  kafka:
-    container_name: kafka
-    image: quay.io/strimzi/kafka:0.28.0-kafka-3.1.0
-    command: [
-      "sh", "-c",
-      "bin/kafka-server-start.sh config/server.properties --override listeners=$${KAFKA_LISTENERS} --override advertised.listeners=$${KAFKA_ADVERTISED_LISTENERS} --override zookeeper.connect=$${KAFKA_ZOOKEEPER_CONNECT}"
-    ]
-    depends_on:
-    - zookeeper
-    ports:
-    - "9092:9092"
-    environment:
-      LOG_DIR: "/tmp/logs"
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
 
-volumes:
-  grafana:
-  influxdb:
-  chronograf:
+  # kafka:
+  #   container_name: kafka
+  #   image: quay.io/strimzi/kafka:0.28.0-kafka-3.1.0
+  #   command: [
+  #     "sh", "-c",
+  #     "bin/kafka-server-start.sh config/server.properties --override listeners=$${KAFKA_LISTENERS} --override advertised.listeners=$${KAFKA_ADVERTISED_LISTENERS} --override zookeeper.connect=$${KAFKA_ZOOKEEPER_CONNECT}"
+  #   ]
+  #   depends_on:
+  #   - zookeeper
+  #   ports:
+  #   - "9092:9092"
+  #   environment:
+  #     LOG_DIR: "/tmp/logs"
+  #     KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+  #     KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+  #     KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+
+ 
