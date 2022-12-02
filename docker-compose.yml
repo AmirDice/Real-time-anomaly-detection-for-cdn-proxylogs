@@ -1,221 +1,268 @@
 version: "3"
 
 services:
-  influxdb:
-    image: bitnami/influxdb
-    container_name: influxdb
-    volumes:
-      - influxdb:/var/lib/influxdb
-    # entrypoint: ["./entrypoint.sh"]
-    restart: on-failure:10
-    ports:
-     - 8086:8086
-    environment:
-      - INFLUXDB_DB=${INFLUXDB_DB}
-      - INFLUXDB_USER_BUCKET=${DEFAULT_BUCKET}
-      - INFLUXDB_ADMIN_USER=${ADMIN_USERNAME}
-      - INFLUXDB_ADMIN_USER_PASSWORD=${ADMIN_PASSWORD}
-      - INFLUXDB_ADMIN_USER_TOKEN=${AUTH_TOKEN}
-      - ORG=${DEFAULT_ORGANIZATION}
-    # networks:
-    #   - cdn-network
-
-  telegraf:
-    image: telegraf
-    container_name: telegraf
-    volumes:
-      - ./telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
-    environment:
-      - HOST=${INFLUXDB_HOST}
-      - TOKEN=${AUTH_TOKEN}
-      - ORG=${DEFAULT_ORGANIZATION}
-      - BUCKET=${MONITORING_BUCKET}
-    depends_on:
-      - influxdb
-    links:
-      - influxdb
-    ports:
-      - 8125:8125
-    # networks:
-    #   - cdn-network
-
-  grafana:
-    image: grafana/grafana
-    container_name: grafana
-    ports:
-      - 3000:3000
-    volumes:
-      - grafana:/var/lib/grafana
-    environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
-    depends_on: 
-      - influxdb
-    # networks:
-    #   - cdn-network
-
-  chronograf:
-    image: chronograf:latest
-    hostname: chronograf
-    container_name: chronograf
-    ports:
-      - 8080:8080
-    links:
-      - influxdb
-    depends_on:
-      - influxdb
-    volumes:
-      - chronograf:/var/lib/chronograf
-    environment:
-      - PORT=8080
-    # networks:
-    #   - cdn-network
-  cp-zookeeper:
-    image: confluentinc/cp-zookeeper:6.0.1
+  zookeeper:
+    image: confluentinc/cp-zookeeper:5.3.1
     hostname: zookeeper
     container_name: zookeeper
     ports:
-    - "2181:2181"
+      - "2181:2181"
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
 
-  cp-broker:
-    image: confluentinc/cp-kafka:latest
+  broker:
+    image: confluentinc/cp-enterprise-kafka:5.3.1
     hostname: broker
     container_name: broker
     depends_on:
-    - cp-zookeeper
+      - zookeeper
     ports:
-    - "29092:29092"
-    - "9092:9092"
+      - '9092:9092'
+      - '29094:29094'
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: EXTERNAL://localhost:29094,INTERNAL://broker:9092
+      KAFKA_LISTENERS: EXTERNAL://0.0.0.0:29094,INTERNAL://0.0.0.0:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
-      CONFLUENT_METRICS_REPORTER_BOOTSTRAP_SERVERS: broker:29092
-      CONFLUENT_METRICS_REPORTER_ZOOKEEPER_CONNECT: zookeeper:2181
-      CONFLUENT_METRICS_REPORTER_TOPIC_REPLICAS: 1
-      CONFLUENT_METRICS_ENABLE: 'false'
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
 
-  cp-schema-registry:
-    image: confluentinc/cp-schema-registry:6.0.1
-    hostname: schema-registry
-    container_name: schema-registry
+  ksql-server:
+    image: confluentinc/cp-ksql-server:5.3.0
+    hostname: ksql-server
+    container_name: ksql-server
     depends_on:
-    - cp-zookeeper
-    - cp-broker
+      - broker
     ports:
-    - "8081:8081"
+      - "8090:8090"
     environment:
-      SCHEMA_REGISTRY_HOST_NAME: schema-registry
-      SCHEMA_REGISTRY_KAFKASTORE_CONNECTION_URL: 'zookeeper:2181'
+      KSQL_LISTENERS: http://0.0.0.0:8090
+      KSQL_BOOTSTRAP_SERVERS: broker:9092
+      KSQL_KSQL_LOGGING_PROCESSING_STREAM_AUTO_CREATE: "true"
+      KSQL_KSQL_LOGGING_PROCESSING_TOPIC_AUTO_CREATE: "true"
 
-  connect-file-pulse:
-    image: streamthoughts/kafka-connect-file-pulse:2.5.0
-    container_name: connect
+  ksql-cli:
+    image: confluentinc/cp-ksql-cli:5.3.1
+    container_name: ksql-cli
     depends_on:
-    - cp-broker
-    - cp-schema-registry
-    ports:
-    - "8083:8083"
-    - "8000:8000"
-    environment:
-      CONNECT_BOOTSTRAP_SERVERS: 'broker:29092'
-      CONNECT_REST_ADVERTISED_HOST_NAME: connect
-      CONNECT_REST_PORT: 8083
-      CONNECT_GROUP_ID: compose-connect-group
-      CONNECT_CONFIG_STORAGE_TOPIC: docker-connect-configs
-      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
-      CONNECT_OFFSET_FLUSH_INTERVAL_MS: 10000
-      CONNECT_OFFSET_STORAGE_TOPIC: docker-connect-offsets
-      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
-      CONNECT_STATUS_STORAGE_TOPIC: docker-connect-status
-      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
-      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.storage.StringConverter
-      CONNECT_VALUE_CONVERTER: io.confluent.connect.avro.AvroConverter
-      CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
-      CONNECT_INTERNAL_KEY_CONVERTER: "org.apache.kafka.connect.json.JsonConverter"
-      CONNECT_INTERNAL_VALUE_CONVERTER: "org.apache.kafka.connect.json.JsonConverter"
-      CONNECT_ZOOKEEPER_CONNECT: 'zookeeper:2181'
-      # kafka-connect-file-pulse is installed as a confluent-hub component
-      CONNECT_PLUGIN_PATH: "/usr/share/java,/usr/share/confluent-hub-components/"
-      CONNECT_LOG4J_ROOT_LOGLEVEL: "INFO"
-      # CONNECT_LOG4J_LOGGERS: io.streamthoughts=DEBUG,org.apache.zookeeper=ERROR,org.I0Itec.zkclient=ERROR,org.reflections=ERROR
-      # Uncomment for debugging the connector during development cycle
-      # KAFKA_OPTS: "-agentlib:jdwp=transport=dt_socket,server=y,address=8000,suspend=n"
+      - broker
+      - ksql-server
     volumes:
-      - ./connect-data:/tmp/connect-data   
-volumes:
-  grafana:
+      - /home/kafka/workspace/graymatter/ksql:/srv/docker/ksql
+    entrypoint: 
+      - /bin/bash
+      - -c
+      - |
+        echo -e "\n\n⏳ Waiting for KSQL to be available before launching CLI\n"
+        while [ $$(curl -s -o /dev/null -w %{http_code} http://ksql-server:8090/info) -eq 000 ] 
+        do
+          echo -e $$(date) "KSQL Server HTTP state: " $$(curl -s -o /dev/null -w %{http_code} http://ksql-server:8090/info) " (waiting for 200)"
+          sleep 5
+        done
+        echo -e "\n\n-> Running KSQL commands\n"
+        sleep 5
+        cat /srv/docker/ksql/device_count/commands.sql <(echo 'EXIT')| ksql http://ksql-server:8090
+        echo -e "\n\n-> Sleeping…\n"
+        sleep infinity
+
   influxdb:
-  chronograf:
-
-
-# Kafka Service Running with Zookeeper
-  # kafka:
-  #   image: spotify/kafka
-  #   container_name: kafka
-  #   hostname: kafka
-  #   ports:
-  #     - 9092:9092
-  #   environment:
-  #     ADVERTISED_HOST: kafka
-  #     ADVERTISED_PORT: 9092
-  #     AUTO_CREATE_TOPICS: "true"
-  #   command: >
-  #       bash -c
-  #       "(sleep 15s &&
-  #       /opt/kafka_2.11-0.10.1.0/bin/kafka-topics.sh
-  #       --create
-  #       --zookeeper
-  #       localhost:2181 --replication-factor 1 --partitions 1 --topic CDN &) && (supervisord -n)"
-  #   healthcheck:
-  #     test: ['CMD-SHELL', '/opt/kafka_2.11-0.10.1.0/bin/kafka-topics.sh --zookeeper localhost:2181 --list']
-  #     interval: 20s
-  #     timeout: 5s
-  #     retries: 3
-
-   # Python Environement running a KafkaProducer program
-  # producer:      
-  #   image: producer
-  #   container_name: producer
-  #   build: ./kafka
-  #   depends_on:
-  #     kafka:
-  #       condition: service_healthy
+    image: influxdb:1.7.9
+    container_name: influxdb
+    depends_on:
+      - ksql-cli
+    ports:
+      - "8086:8086"
+    volumes:
+      - /srv/docker/influxdb/data:/var/lib/influxdb
   
-  # zookeeper:
-  #   container_name: zookeeper
-  #   image: quay.io/strimzi/kafka:0.28.0-kafka-3.1.0
-  #   command: [
-  #       "sh", "-c",
-  #       "bin/zookeeper-server-start.sh config/zookeeper.properties"
-  #     ]
-  #   ports:
-  #   - "2181:2181"
-  #   environment:
-  #     LOG_DIR: /tmp/logs
-
-
-  # kafka:
-  #   container_name: kafka
-  #   image: quay.io/strimzi/kafka:0.28.0-kafka-3.1.0
-  #   command: [
-  #     "sh", "-c",
-  #     "bin/kafka-server-start.sh config/server.properties --override listeners=$${KAFKA_LISTENERS} --override advertised.listeners=$${KAFKA_ADVERTISED_LISTENERS} --override zookeeper.connect=$${KAFKA_ZOOKEEPER_CONNECT}"
-  #   ]
-  #   depends_on:
-  #   - zookeeper
-  #   ports:
-  #   - "9092:9092"
-  #   environment:
-  #     LOG_DIR: "/tmp/logs"
-  #     KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
-  #     KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
-  #     KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    depends_on:
+      - influxdb
+    ports:
+      - '3000:3000'
+    volumes:
+      - grafana-storage:/var/lib/grafana
+      - grafana-provisioning:/etc/grafana/provisioning
  
+  myconsumer-app:
+    container_name: myconsumer
+    build: ./kafka/consumer
+    depends_on:
+      - broker
+      - ksql-server
+      - ksql-cli
+      - influxdb
+    command:
+      - /bin/sh
+      - -c
+      - |
+        apk add --no-cache curl;
+        echo Waiting for influxdb API ...;
+        while ! nc -z influxdb 8086;
+        do
+          sleep 5;
+        done;
+        echo InfluxDB Ready ...; python cdncons.py
+
+volumes:
+  grafana-storage:
+  grafana-provisioning:
+#   influxdb:
+#     image: bitnami/influxdb
+#     container_name: influxdb
+#     volumes:
+#       - influxdb:/var/lib/influxdb
+#     # entrypoint: ["./entrypoint.sh"]
+#     restart: on-failure:10
+#     ports:
+#      - 8086:8086
+#     environment:
+#       - INFLUXDB_DB=${INFLUXDB_DB}
+#       - INFLUXDB_USER_BUCKET=${DEFAULT_BUCKET}
+#       - INFLUXDB_ADMIN_USER=${ADMIN_USERNAME}
+#       - INFLUXDB_ADMIN_USER_PASSWORD=${ADMIN_PASSWORD}
+#       - INFLUXDB_ADMIN_USER_TOKEN=${AUTH_TOKEN}
+#       - ORG=${DEFAULT_ORGANIZATION}
+#     # networks:
+#     #   - cdn-network
+
+#   telegraf:
+#     image: telegraf
+#     container_name: telegraf
+#     volumes:
+#       - ./telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
+#     environment:
+#       - HOST=${INFLUXDB_HOST}
+#       - TOKEN=${AUTH_TOKEN}
+#       - ORG=${DEFAULT_ORGANIZATION}
+#       - BUCKET=${MONITORING_BUCKET}
+#     depends_on:
+#       - influxdb
+#     links:
+#       - influxdb
+#     ports:
+#       - 8125:8125
+#     # networks:
+#     #   - cdn-network
+
+#   grafana:
+#     image: grafana/grafana
+#     container_name: grafana
+#     ports:
+#       - 3000:3000
+#     volumes:
+#       - grafana:/var/lib/grafana
+#     environment:
+#       - GF_SECURITY_ADMIN_USER=admin
+#       - GF_SECURITY_ADMIN_PASSWORD=admin
+#     depends_on: 
+#       - influxdb
+#     # networks:
+#     #   - cdn-network
+
+#   chronograf:
+#     image: chronograf:latest
+#     hostname: chronograf
+#     container_name: chronograf
+#     ports:
+#       - 8080:8080
+#     links:
+#       - influxdb
+#     depends_on:
+#       - influxdb
+#     volumes:
+#       - chronograf:/var/lib/chronograf
+#     environment:
+#       - PORT=8080
+#     # networks:
+#     #   - cdn-network
+
+#   zookeeper:
+#     image: confluentinc/cp-zookeeper:7.0.1
+#     container_name: zookeeper
+#     ports:
+#         - "2181:2181"
+#     environment:
+#       ZOOKEEPER_CLIENT_PORT: 2181
+#       ZOOKEEPER_TICK_TIME: 2000
+
+#   broker:
+#     image: confluentinc/cp-kafka:7.0.1
+#     container_name: broker
+#     depends_on:
+#       - zookeeper
+#     ports:
+#       - "29092:29092"
+#       - "9092:9092"
+#       - "9101:9101"
+#     environment:
+#       KAFKA_BROKER_ID: 1
+#       KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+#       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+#       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker:29092,PLAINTEXT_HOST://localhost:9092
+#       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+#       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+#       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+#       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+#       KAFKA_JMX_PORT: 9101
+#       KAFKA_JMX_HOSTNAME: localhost
+
+# volumes:
+#   grafana:
+#   influxdb:
+#   chronograf:
+
+
+#   cp-schema-registry:
+#     image: confluentinc/cp-schema-registry:6.0.1
+#     hostname: schema-registry
+#     container_name: schema-registry
+#     depends_on:
+#     - cp-zookeeper
+#     - cp-broker
+#     ports:
+#     - "8081:8081"
+#     environment:
+#       SCHEMA_REGISTRY_HOST_NAME: schema-registry
+#       SCHEMA_REGISTRY_KAFKASTORE_CONNECTION_URL: 'zookeeper:2181'
+
+#   connect-file-pulse:
+#     image: streamthoughts/kafka-connect-file-pulse:2.5.0
+#     container_name: connect
+#     depends_on:
+#     - cp-broker
+#     - cp-schema-registry
+#     ports:
+#     - "8083:8083"
+#     - "8000:8000"
+#     environment:
+#       CONNECT_BOOTSTRAP_SERVERS: 'broker:29092'
+#       CONNECT_REST_ADVERTISED_HOST_NAME: connect
+#       CONNECT_REST_PORT: 8083
+#       CONNECT_GROUP_ID: compose-connect-group
+#       CONNECT_CONFIG_STORAGE_TOPIC: docker-connect-configs
+#       CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
+#       CONNECT_OFFSET_FLUSH_INTERVAL_MS: 10000
+#       CONNECT_OFFSET_STORAGE_TOPIC: docker-connect-offsets
+#       CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
+#       CONNECT_STATUS_STORAGE_TOPIC: docker-connect-status
+#       CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
+#       CONNECT_KEY_CONVERTER: org.apache.kafka.connect.storage.StringConverter
+#       CONNECT_VALUE_CONVERTER: io.confluent.connect.avro.AvroConverter
+#       CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+#       CONNECT_INTERNAL_KEY_CONVERTER: "org.apache.kafka.connect.json.JsonConverter"
+#       CONNECT_INTERNAL_VALUE_CONVERTER: "org.apache.kafka.connect.json.JsonConverter"
+#       CONNECT_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+#       # kafka-connect-file-pulse is installed as a confluent-hub component
+#       CONNECT_PLUGIN_PATH: "/usr/share/java,/usr/share/confluent-hub-components/"
+#       CONNECT_LOG4J_ROOT_LOGLEVEL: "INFO"
+#       # CONNECT_LOG4J_LOGGERS: io.streamthoughts=DEBUG,org.apache.zookeeper=ERROR,org.I0Itec.zkclient=ERROR,org.reflections=ERROR
+#       # Uncomment for debugging the connector during development cycle
+#       # KAFKA_OPTS: "-agentlib:jdwp=transport=dt_socket,server=y,address=8000,suspend=n"
+#     volumes:
+#       - ./connect-data:/tmp/connect-data   
