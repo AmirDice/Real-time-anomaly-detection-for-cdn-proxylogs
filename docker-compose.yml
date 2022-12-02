@@ -2,7 +2,7 @@ version: "3"
 
 services:
   zookeeper:
-    image: confluentinc/cp-zookeeper:5.3.1
+    image: confluentinc/cp-zookeeper:7.3.0
     hostname: zookeeper
     container_name: zookeeper
     ports:
@@ -12,7 +12,7 @@ services:
       ZOOKEEPER_TICK_TIME: 2000
 
   broker:
-    image: confluentinc/cp-enterprise-kafka:5.3.1
+    image: confluentinc/cp-server:7.3.0
     hostname: broker
     container_name: broker
     depends_on:
@@ -45,7 +45,7 @@ services:
       KSQL_KSQL_LOGGING_PROCESSING_TOPIC_AUTO_CREATE: "true"
 
   ksql-cli:
-    image: confluentinc/cp-ksql-cli:5.3.1
+    image: confluentinc/cp-ksqldb-cli:7.3.0
     container_name: ksql-cli
     depends_on:
       - broker
@@ -69,7 +69,7 @@ services:
         sleep infinity
 
   influxdb:
-    image: influxdb:1.7.9
+    image: influxdb:latest
     container_name: influxdb
     depends_on:
       - ksql-cli
@@ -112,6 +112,7 @@ services:
 volumes:
   grafana-storage:
   grafana-provisioning:
+  influxdb:
 #   influxdb:
 #     image: bitnami/influxdb
 #     container_name: influxdb

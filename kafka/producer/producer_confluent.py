@@ -56,3 +56,6 @@ def produce(data, producer_type):
 
 if __name__ == "__main__":
     func(sys.argv[1:])
+    
+    
+# cd producer; python C:\Users\AMIR\Downloads\anomalydeteccdn\kafka\producer\producer_confluent.py -i C:\Users\AMIR\Downloads\anomalydeteccdn\kafka\data\cdata.json -t time
