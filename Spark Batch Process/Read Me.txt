@@ -1,0 +1,42 @@
+Prepare your environment
+Prerequisites
+
+1. Install .NET
+Download and install the .NET Core SDK. Installing the SDK adds the dotnet toolchain to your PATH.
+
+
+2. Install Java
+Install Java 8.1 for Windows and macOS, or OpenJDK 8 for Ubuntu.
+
+3. Install compression software
+Apache Spark is downloaded as a compressed .tgz file. Use an extraction program, like 7-Zip or WinZip, to extract the file.
+
+4. Install Apache Spark
+Download and install Apache Spark. You'll need to select from version 2.3.* or 2.4.0, 2.4.1, 2.4.3, 2.4.4, 2.4.5, 2.4.6, 
+2.4.7, 3.0.0, 3.0.1, 3.0.2, 3.1.1, 3.1.2, 3.2.0, or 3.2.1
+
+MAKE SURE THE WORKING DIRECTORY SET BY PROJECT LOCATIONS OR GO ENVIROMENT SETTING IN MY-PC PROPERTIES
+
+setx /M HADOOP_HOME C:\bin\spark-3.0.1-bin-hadoop2.7\
+setx /M SPARK_HOME C:\bin\spark-3.0.1-bin-hadoop2.7\
+setx /M PATH "%PATH%;%HADOOP_HOME%;%SPARK_HOME%bin" # Warning: Don't run this if your path is already long 
+as it will truncate your path to 1024 characters and potentially remove entries!
+
+5. Install .NET for Apache Spark
+Download the Microsoft.Spark.Worker release from the .NET for Apache Spark GitHub. 
+For example if you're on a Windows machine and plan to use .NET Core, download the Windows x64 netcoreapp3.1 release.
+
+6. Install WinUtils (Windows only)
+.NET for Apache Spark requires WinUtils to be installed alongside Apache Spark. Download winutils.exe. 
+Then, copy WinUtils into C:\bin\spark-3.0.1-bin-hadoop2.7\bin.
+
+7. Set DOTNET_WORKER_DIR and check dependencies
+
+setx /M DOTNET_WORKER_DIR <PATH-DOTNET-WORKER-DIR>
+
+8. Install NuGet package
+dotnet add package Microsoft.Spark
+
+
+
+

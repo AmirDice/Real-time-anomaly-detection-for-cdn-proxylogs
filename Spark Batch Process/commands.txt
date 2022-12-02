@@ -1,0 +1,11 @@
+check working prerequisite in you cmd or power shell,always open in Administrator mode.
+
+dotnet
+java
+spark-shell
+
+
+main commands
+
+dotnet build
+spark-submit.cmd --class org.apache.spark.deploy.dotnet.DotnetRunner --master local \bin\Debug\netcoreapp3.1\microsoft-spark-3-0_2.12-2.1.1.jar dotnet \bin\Debug\netcoreapp3.1\cdn.dll <.csv file, if using same directory remove this <> >
