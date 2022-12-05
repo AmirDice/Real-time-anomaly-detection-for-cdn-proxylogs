@@ -7,7 +7,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score
 
 # Load the data
-data = pd.read_csv('./data/CDN_train.csv', delimiter=',')
+data = pd.read_csv('./data/cdata.csv', delimiter=',')
 
 # Unsupervised Isolation Forest
 iso = IsolationForest(contamination = 'auto', random_state = 42)

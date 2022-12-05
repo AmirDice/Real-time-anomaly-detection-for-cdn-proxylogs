@@ -2,268 +2,150 @@ version: "3"
 
 services:
   zookeeper:
-    image: confluentinc/cp-zookeeper:7.3.0
-    hostname: zookeeper
-    container_name: zookeeper
-    ports:
-      - "2181:2181"
+    image: confluentinc/cp-zookeeper:6.2.0
     environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
+      - ZOOKEEPER_CLIENT_PORT=32181
+    ports:
+      - 32181:32181
+    networks:
+      - anomaly-cdn-network
 
-  broker:
-    image: confluentinc/cp-server:7.3.0
-    hostname: broker
-    container_name: broker
+  kafka:
+    image: confluentinc/cp-kafka:6.2.0
+    container_name: kafka
     depends_on:
       - zookeeper
+    networks:
+      - anomaly-cdn-network
     ports:
-      - '9092:9092'
-      - '29094:29094'
+      - 9092:9092
+      - 30001:30001
     environment:
+      KAFKA_CREATE_TOPICS: CDN:1:1,PCDN:2:1
       KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
-      KAFKA_ADVERTISED_LISTENERS: EXTERNAL://localhost:29094,INTERNAL://broker:9092
-      KAFKA_LISTENERS: EXTERNAL://0.0.0.0:29094,INTERNAL://0.0.0.0:9092
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:32181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
-      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
-
-  ksql-server:
-    image: confluentinc/cp-ksql-server:5.3.0
-    hostname: ksql-server
-    container_name: ksql-server
-    depends_on:
-      - broker
-    ports:
-      - "8090:8090"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 100 
+      
+  pyspark:
+    container_name: pyspark
+    image: docker.io/bitnami/spark:3
+    hostname: spark
+    build: ./spark
     environment:
-      KSQL_LISTENERS: http://0.0.0.0:8090
-      KSQL_BOOTSTRAP_SERVERS: broker:9092
-      KSQL_KSQL_LOGGING_PROCESSING_STREAM_AUTO_CREATE: "true"
-      KSQL_KSQL_LOGGING_PROCESSING_TOPIC_AUTO_CREATE: "true"
-
-  ksql-cli:
-    image: confluentinc/cp-ksqldb-cli:7.3.0
-    container_name: ksql-cli
-    depends_on:
-      - broker
-      - ksql-server
+      - SPARK_MODE=master
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+    ports:
+        - 8080:8080
+    networks:
+        - anomaly-cdn-network
     volumes:
-      - /home/kafka/workspace/graymatter/ksql:/srv/docker/ksql
-    entrypoint: 
-      - /bin/bash
-      - -c
-      - |
-        echo -e "\n\n⏳ Waiting for KSQL to be available before launching CLI\n"
-        while [ $$(curl -s -o /dev/null -w %{http_code} http://ksql-server:8090/info) -eq 000 ] 
-        do
-          echo -e $$(date) "KSQL Server HTTP state: " $$(curl -s -o /dev/null -w %{http_code} http://ksql-server:8090/info) " (waiting for 200)"
-          sleep 5
-        done
-        echo -e "\n\n-> Running KSQL commands\n"
-        sleep 5
-        cat /srv/docker/ksql/device_count/commands.sql <(echo 'EXIT')| ksql http://ksql-server:8090
-        echo -e "\n\n-> Sleeping…\n"
-        sleep infinity
+        - ./spark:/sparkScripts:rw
+
 
   influxdb:
-    image: influxdb:latest
-    container_name: influxdb
-    depends_on:
-      - ksql-cli
-    ports:
-      - "8086:8086"
+    image: influxdb:2.1.1
     volumes:
-      - /srv/docker/influxdb/data:/var/lib/influxdb
+      - influxdb-storage:/var/lib/influxdb2:rw
+    env_file:
+      - .env
+    entrypoint: ["./entrypoint.sh"]
+    restart: on-failure:10
+    ports:
+      - ${DOCKER_INFLUXDB_INIT_PORT}:8086
+    networks:
+      - anomaly-cdn-network
+
+  telegraf:
+    image: telegraf:1.22
+    volumes:
+      - ${TELEGRAF_CFG_PATH}:/etc/telegraf/telegraf.conf:rw
+    env_file:
+      - .env
+    depends_on:
+      - influxdb
+    networks:
+      - anomaly-cdn-network
   
-  grafana:
-    image: grafana/grafana:latest
-    container_name: grafana
-    depends_on:
-      - influxdb
-    ports:
-      - '3000:3000'
-    volumes:
-      - grafana-storage:/var/lib/grafana
-      - grafana-provisioning:/etc/grafana/provisioning
- 
-  myconsumer-app:
-    container_name: myconsumer
-    build: ./kafka/consumer
-    depends_on:
-      - broker
-      - ksql-server
-      - ksql-cli
-      - influxdb
-    command:
-      - /bin/sh
-      - -c
-      - |
-        apk add --no-cache curl;
-        echo Waiting for influxdb API ...;
-        while ! nc -z influxdb 8086;
-        do
-          sleep 5;
-        done;
-        echo InfluxDB Ready ...; python cdncons.py
+  # cdn-con-prod:      
+  #   image: cdn-con-prod
+  #   container_name: cdn-con-prod
+  #   build: ./
+  #   depends_on:
+  #     - kafka
+  #   networks:
+  #     - anomaly-cdn-network
+
+networks:
+  anomaly-cdn-network:
+    driver: bridge
 
 volumes:
-  grafana-storage:
-  grafana-provisioning:
-  influxdb:
-#   influxdb:
-#     image: bitnami/influxdb
-#     container_name: influxdb
-#     volumes:
-#       - influxdb:/var/lib/influxdb
-#     # entrypoint: ["./entrypoint.sh"]
-#     restart: on-failure:10
-#     ports:
-#      - 8086:8086
-#     environment:
-#       - INFLUXDB_DB=${INFLUXDB_DB}
-#       - INFLUXDB_USER_BUCKET=${DEFAULT_BUCKET}
-#       - INFLUXDB_ADMIN_USER=${ADMIN_USERNAME}
-#       - INFLUXDB_ADMIN_USER_PASSWORD=${ADMIN_PASSWORD}
-#       - INFLUXDB_ADMIN_USER_TOKEN=${AUTH_TOKEN}
-#       - ORG=${DEFAULT_ORGANIZATION}
-#     # networks:
-#     #   - cdn-network
+  # grafana-storage:
+  # chronograf:
+  influxdb-storage:
 
-#   telegraf:
-#     image: telegraf
-#     container_name: telegraf
-#     volumes:
-#       - ./telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
-#     environment:
-#       - HOST=${INFLUXDB_HOST}
-#       - TOKEN=${AUTH_TOKEN}
-#       - ORG=${DEFAULT_ORGANIZATION}
-#       - BUCKET=${MONITORING_BUCKET}
-#     depends_on:
-#       - influxdb
-#     links:
-#       - influxdb
-#     ports:
-#       - 8125:8125
-#     # networks:
-#     #   - cdn-network
-
-#   grafana:
-#     image: grafana/grafana
-#     container_name: grafana
-#     ports:
-#       - 3000:3000
-#     volumes:
-#       - grafana:/var/lib/grafana
-#     environment:
-#       - GF_SECURITY_ADMIN_USER=admin
-#       - GF_SECURITY_ADMIN_PASSWORD=admin
-#     depends_on: 
-#       - influxdb
-#     # networks:
-#     #   - cdn-network
-
-#   chronograf:
-#     image: chronograf:latest
-#     hostname: chronograf
-#     container_name: chronograf
-#     ports:
-#       - 8080:8080
-#     links:
-#       - influxdb
-#     depends_on:
-#       - influxdb
-#     volumes:
-#       - chronograf:/var/lib/chronograf
-#     environment:
-#       - PORT=8080
-#     # networks:
-#     #   - cdn-network
-
-#   zookeeper:
-#     image: confluentinc/cp-zookeeper:7.0.1
-#     container_name: zookeeper
-#     ports:
-#         - "2181:2181"
-#     environment:
-#       ZOOKEEPER_CLIENT_PORT: 2181
-#       ZOOKEEPER_TICK_TIME: 2000
-
-#   broker:
-#     image: confluentinc/cp-kafka:7.0.1
-#     container_name: broker
-#     depends_on:
-#       - zookeeper
-#     ports:
-#       - "29092:29092"
-#       - "9092:9092"
-#       - "9101:9101"
-#     environment:
-#       KAFKA_BROKER_ID: 1
-#       KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
-#       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-#       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker:29092,PLAINTEXT_HOST://localhost:9092
-#       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-#       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-#       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-#       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
-#       KAFKA_JMX_PORT: 9101
-#       KAFKA_JMX_HOSTNAME: localhost
-
-# volumes:
-#   grafana:
-#   influxdb:
-#   chronograf:
+  # grafana:
+  #   image: grafana/grafana-oss:8.4.3
+  #   volumes:
+  #     - grafana-storage:/var/lib/grafana:rw
+  #   depends_on:
+  #     - influxdb
+  #   ports:
+  #     - ${GRAFANA_PORT}:3000
+  #   networks:
+  #     - anomaly-cdn-network
 
 
-#   cp-schema-registry:
-#     image: confluentinc/cp-schema-registry:6.0.1
-#     hostname: schema-registry
-#     container_name: schema-registry
-#     depends_on:
-#     - cp-zookeeper
-#     - cp-broker
-#     ports:
-#     - "8081:8081"
-#     environment:
-#       SCHEMA_REGISTRY_HOST_NAME: schema-registry
-#       SCHEMA_REGISTRY_KAFKASTORE_CONNECTION_URL: 'zookeeper:2181'
+  # chronograf:
+  #   image: chronograf:latest
+  #   hostname: chronograf
+  #   container_name: chronograf
+  #   ports:
+  #     - 8080:8080
+  #   links:
+  #     - influxdb
+  #   depends_on:
+  #     - influxdb
+  #   volumes:
+  #     - chronograf:/var/lib/chronograf
+  #   environment:
+  #     - PORT=8080
+  #   networks:
+  #     - anomaly-cdn-network
+  
 
-#   connect-file-pulse:
-#     image: streamthoughts/kafka-connect-file-pulse:2.5.0
-#     container_name: connect
-#     depends_on:
-#     - cp-broker
-#     - cp-schema-registry
-#     ports:
-#     - "8083:8083"
-#     - "8000:8000"
-#     environment:
-#       CONNECT_BOOTSTRAP_SERVERS: 'broker:29092'
-#       CONNECT_REST_ADVERTISED_HOST_NAME: connect
-#       CONNECT_REST_PORT: 8083
-#       CONNECT_GROUP_ID: compose-connect-group
-#       CONNECT_CONFIG_STORAGE_TOPIC: docker-connect-configs
-#       CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
-#       CONNECT_OFFSET_FLUSH_INTERVAL_MS: 10000
-#       CONNECT_OFFSET_STORAGE_TOPIC: docker-connect-offsets
-#       CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
-#       CONNECT_STATUS_STORAGE_TOPIC: docker-connect-status
-#       CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
-#       CONNECT_KEY_CONVERTER: org.apache.kafka.connect.storage.StringConverter
-#       CONNECT_VALUE_CONVERTER: io.confluent.connect.avro.AvroConverter
-#       CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
-#       CONNECT_INTERNAL_KEY_CONVERTER: "org.apache.kafka.connect.json.JsonConverter"
-#       CONNECT_INTERNAL_VALUE_CONVERTER: "org.apache.kafka.connect.json.JsonConverter"
-#       CONNECT_ZOOKEEPER_CONNECT: 'zookeeper:2181'
-#       # kafka-connect-file-pulse is installed as a confluent-hub component
-#       CONNECT_PLUGIN_PATH: "/usr/share/java,/usr/share/confluent-hub-components/"
-#       CONNECT_LOG4J_ROOT_LOGLEVEL: "INFO"
-#       # CONNECT_LOG4J_LOGGERS: io.streamthoughts=DEBUG,org.apache.zookeeper=ERROR,org.I0Itec.zkclient=ERROR,org.reflections=ERROR
-#       # Uncomment for debugging the connector during development cycle
-#       # KAFKA_OPTS: "-agentlib:jdwp=transport=dt_socket,server=y,address=8000,suspend=n"
-#     volumes:
-#       - ./connect-data:/tmp/connect-data   
+
+
+
+  # myconsumer-app:
+  #   container_name: myconsumer
+  #   build: .\kafka
+  #   depends_on:
+  #     - kafka
+  #     - ksql-server
+  #     - ksql-cli
+  #     - influxdb
+  #   command:
+  #     - /bin/sh
+  #     - -c
+  #     - |
+  #       apk add --no-cache curl;
+  #       echo Waiting for influxdb API ...;
+  #       while ! nc -z influxdb 8086;
+  #       do
+  #         sleep 5;
+  #       done;
+  #       echo InfluxDB Ready ...; python cdncons.py
+  #   networks:
+  #     - anomaly-cdn-network
+
+
+# /opt/kafka_2.11-0.10.1.0/bin/kafka-topics.sh --create --zookeeper localhost:2181 --replication-factor 1 --partitions 1 --topic CDN

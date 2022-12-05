@@ -1,2 +1,5 @@
-confluent-kafka==1.7.0
+influxdb==2.1
 python-dateutil==2.8.2
+kafka-python
+influxdb-client
+
