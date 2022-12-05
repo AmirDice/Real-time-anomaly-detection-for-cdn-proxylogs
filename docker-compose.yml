@@ -50,27 +50,47 @@ services:
         - ./spark:/sparkScripts:rw
 
 
+  # influxdb:
+  #   image: influxdb:2.1.1
+  #   volumes:
+  #     - influxdb-storage:/var/lib/influxdb2:rw
+  #   env_file:
+  #     - .env
+  #   entrypoint: ["./entrypoint.sh"]
+  #   restart: on-failure:10
+  #   ports:
+  #     - ${DOCKER_INFLUXDB_INIT_PORT}:8086
+  #   networks:
+  #     - anomaly-cdn-network
   influxdb:
-    image: influxdb:2.1.1
+    container_name: influxdb
+    image: influxdb:2.4.0-alpine
+    restart: always
     volumes:
-      - influxdb-storage:/var/lib/influxdb2:rw
-    env_file:
-      - .env
-    entrypoint: ["./entrypoint.sh"]
-    restart: on-failure:10
+      - influxdb-data:/var/lib/influxdb2
     ports:
-      - ${DOCKER_INFLUXDB_INIT_PORT}:8086
+      - 8086:8086
+    environment:
+      - INFLUXDB_DB=${INFLUXDB_DB}
+      - INFLUXDB_USER_BUCKET=${BUCKET}
+      - INFLUXDB_ADMIN_USER=${ADMIN_USERNAME}
+      - INFLUXDB_ADMIN_USER_PASSWORD=${ADMIN_PASSWORD}
+      - INFLUXDB_ADMIN_USER_TOKEN=${AUTH_TOKEN}
     networks:
       - anomaly-cdn-network
 
   telegraf:
-    image: telegraf:1.22
+    container_name: telegraf
+    image: telegraf:latest
+    restart: always
     volumes:
-      - ${TELEGRAF_CFG_PATH}:/etc/telegraf/telegraf.conf:rw
-    env_file:
-      - .env
+      - ./telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
     depends_on:
       - influxdb
+    links:
+      - influxdb
+    ports:
+      - 8125:8125
     networks:
       - anomaly-cdn-network
   
@@ -119,7 +139,7 @@ networks:
 volumes:
   grafana-storage:
   chronograf:
-  influxdb-storage:
+  influxdb-data:
 
 
   
