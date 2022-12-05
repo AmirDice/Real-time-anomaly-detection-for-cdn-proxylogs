@@ -7,13 +7,13 @@ import time
 print("Producer started")
 # initialize KafkaProducer
 bootstrap_servers = ['localhost:9092']
-topicname = 'CDN'
+topicname = 'cdn'
 producer = KafkaProducer(bootstrap_servers = bootstrap_servers)
 producer = KafkaProducer()
 print("Producer initialized, reading data....")
 
 # open csv data
-with open('./kafka/data/sdata.csv','r') as new_obj:
+with open('./kafka/data/cdata.csv','r') as new_obj:
     csv_dict_reader = DictReader(new_obj)
     index = 0
     # run throw row

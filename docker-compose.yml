@@ -21,7 +21,7 @@ services:
       - 9092:9092
       - 30001:30001
     environment:
-      KAFKA_CREATE_TOPICS: CDN:1:1,PCDN:2:1
+      KAFKA_CREATE_TOPICS: cdn:1:1,pcdn:2:1
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:32181
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
@@ -74,52 +74,54 @@ services:
     networks:
       - anomaly-cdn-network
   
-  # cdn-con-prod:      
-  #   image: cdn-con-prod
-  #   container_name: cdn-con-prod
-  #   build: ./
-  #   depends_on:
-  #     - kafka
-  #   networks:
-  #     - anomaly-cdn-network
+  grafana:
+    image: grafana/grafana-oss:8.4.3
+    volumes:
+      - grafana-storage:/var/lib/grafana:rw
+    depends_on:
+      - influxdb
+    ports:
+      - ${GRAFANA_PORT}:3000
+    networks:
+      - anomaly-cdn-network
+
+
+  chronograf:
+    image: chronograf:latest
+    hostname: chronograf
+    container_name: chronograf
+    ports:
+      - 7070:7070
+    links:
+      - influxdb
+    depends_on:
+      - influxdb
+    volumes:
+      - chronograf:/var/lib/chronograf
+    environment:
+      - PORT=8080
+    networks:
+      - anomaly-cdn-network
+  
+  cdn-con-prod:      
+    image: cdn-con-prod
+    container_name: cdn-con-prod
+    build: ./
+    depends_on:
+      - kafka
+    networks:
+      - anomaly-cdn-network
 
 networks:
   anomaly-cdn-network:
     driver: bridge
 
 volumes:
-  # grafana-storage:
-  # chronograf:
+  grafana-storage:
+  chronograf:
   influxdb-storage:
 
-  # grafana:
-  #   image: grafana/grafana-oss:8.4.3
-  #   volumes:
-  #     - grafana-storage:/var/lib/grafana:rw
-  #   depends_on:
-  #     - influxdb
-  #   ports:
-  #     - ${GRAFANA_PORT}:3000
-  #   networks:
-  #     - anomaly-cdn-network
 
-
-  # chronograf:
-  #   image: chronograf:latest
-  #   hostname: chronograf
-  #   container_name: chronograf
-  #   ports:
-  #     - 8080:8080
-  #   links:
-  #     - influxdb
-  #   depends_on:
-  #     - influxdb
-  #   volumes:
-  #     - chronograf:/var/lib/chronograf
-  #   environment:
-  #     - PORT=8080
-  #   networks:
-  #     - anomaly-cdn-network
   
 
 

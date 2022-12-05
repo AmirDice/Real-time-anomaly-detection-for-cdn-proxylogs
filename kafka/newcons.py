@@ -16,7 +16,7 @@ if __name__ == '__main__':
         group_id='cdn-group'
 )
     # database visualization connection info
-    token = "uIEOMp_h3f1gVBzJsEHbh5PTcZFzRG-OOIZC8xzGjv9q80WbjMRhlKYVRLHoTXrTvpK3Xn-cUhwLAEkQCEwg8Q=="
+    token = "CC8zymsGh-0xRp_oMlLV2XL24sGF7mIRXugC9Hfu9FlariNPUmz7AnC_1vU-TUjPrE0RMwgodMMsyPdoJRlrFg=="
     org = "primary"
     bucket = "cdn"
     
