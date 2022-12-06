@@ -119,7 +119,7 @@ services:
     volumes:
       - chronograf:/var/lib/chronograf
     environment:
-      - PORT=8080
+      - PORT=7070
     networks:
       - anomaly-cdn-network
   
