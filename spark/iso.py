@@ -1,25 +1,50 @@
-# Isolation Forest and Logistic Regression
-import pandas as pd
-import numpy as np
-import pickle
-from sklearn.ensemble import IsolationForest
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score
+#isolation forest
+from pyspark.sql import SparkSession
+from pyspark.ml.linalg import Vectors
+import os
+import tempfile
 
-# Load the data
-data = pd.read_csv('./data/cdata.csv', delimiter=',')
 
-# Unsupervised Isolation Forest
-iso = IsolationForest(contamination = 'auto', random_state = 42)
-isol = iso.fit_predict( data.iloc[:, data.columns != 'Time'] )
+if __name__ == "__main__":
+        # Building a spark app/session
+    spark = SparkSession.builder.appName("CDN_PROXY").getOrCreate()
 
-# Split the dataset
-data = data.iloc[:, data.columns != 'Time'] 
-i = round(len(data)*.8)
-## 80% of the data
-X_train = np.asarray(data[0:i])
-y_train = np.asarray(isol[0:i])
-## 20% of the data
-X_valid = np.asarray(data[i+1:len(data)])
-y_valid = np.asarray(isol[i+1:len(isol)])
+# single cluster information
+    df = spark.read.options(header='True', inferSchema='True', delimiter=',') \
+.csv("./spark/data/cdata.csv")
 
+
+    from pyspark_iforest.ml.iforest import *
+
+    iforest = IForest(contamination=0.3, maxDepth=2)
+    model = iforest.fit(df)
+
+    model.hasSummary
+
+    summary = model.summary
+
+    summary.numAnomalies
+
+    transformed = model.transform(df)
+
+    rows = transformed.collect()
+
+    temp_path = tempfile.mkdtemp()
+
+    iforest_path = temp_path + "/iforest"
+
+    iforest.save(iforest_path)
+
+    loaded_iforest = IForest.load(iforest_path)
+
+    model_path = temp_path + "/iforest_model"
+
+    model.save(model_path)
+
+    loaded_model = IForestModel.load(model_path)
+
+    loaded_model.hasSummary
+
+    loaded_model.transform(df).show()
+    
+spark.stop()
